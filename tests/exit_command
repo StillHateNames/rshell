@@ -1,0 +1,20 @@
+#!/bin/sh
+../rshell
+< "echo \"Hello testers!\"\|\|exit\;ls -a\|\|ls\|\|prank\|\|xD\n"
+< "ls -a\&\&echo \"Hello testers!\"\&\&ls\&\&exit\|\|prank\&\&xD\n"
+../rshell
+< "ls\;echo \"Hello testers!\"\; exit \&\&ls -a\;ls\;prank\;xD\n"
+../rshell
+< "prank\;echoa\|\| exit \"Hello testers!\"\&\&ls -a\&\&ls\|\|prank\;xD\n"
+../rshell
+< "xD\&\|echo \"Hello testers!\"\|\| exit;ls -a\|\|ls\|\|prank\|\|xD\n"
+../rshell
+< "echo \"Hello testers!\"exit; \n"
+< "exit && ls -a\n"
+../rshell
+< "ls; exit\n"
+../rshell
+< "prank || exit\n"
+../rshell
+< "xD && exit\n"
+< "exit"
