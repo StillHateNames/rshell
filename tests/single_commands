@@ -1,0 +1,7 @@
+#!/bin/sh
+../rshell
+< "echo \"Hello testers!\"\n"
+< "ls -a\n"
+< "ls\n"
+< "prank\n"
+< "xD\n"
