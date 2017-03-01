@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstring>
 #include <cstdlib>
+#include <string>
 #include "BaseCommand.hh"
 
 int Executable::exec()
@@ -118,7 +119,7 @@ BaseCommand* read(string str) // reads string passed in by user, returns skewed 
     unsigned Series = str.find("&&");
     unsigned Parallel = str.find("||");
     unsigned test;
-    if((Always != string::npos) || (Series != string::npos) || (Parallel != string::npos))
+    if((str.find(';') != string::npos) || (str.find("&&") != string::npos) || (str.find("||") != string::npos))
     {
       if(((Always < Series) && (Always < Parallel)) || ((Series == string::npos) && (Parallel == string::npos)))
       {
