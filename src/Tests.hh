@@ -11,7 +11,7 @@ class test : public BaseCommand //runs test
         test(char type, string str);
         ~test() {};
         bool children() { return false;};
-        int exec(int result);
+        int exec();
 };
 
 BaseCommand* parse(string str); // correctly evaluates parentheses
