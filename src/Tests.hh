@@ -10,6 +10,7 @@ class test : public BaseCommand //runs test
     public:
         test(char type, string str);
         ~test() {};
+        bool children() { return false;};
         int exec(int result);
 };
 
