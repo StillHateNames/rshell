@@ -12,7 +12,7 @@ test::test(char type, string str)
     this->str = str;
 }
 
-int test::exec(int result)
+int test::exec()
 {
     struct stat status;
     int finish;
