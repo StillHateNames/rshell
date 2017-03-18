@@ -14,4 +14,15 @@ class test : public BaseCommand //runs test
         int exec(int result);
 };
 
+class group : public BaseCommand
+{
+    private:
+        BaseCommand* base;
+    public:
+        group(BaseCommand* base) {this->base = base;};
+        ~group() {delete base;};
+        bool children() {return true;};
+        int exec(int result);
+};
+
 BaseCommand* parse(string str); // correctly evaluates parentheses

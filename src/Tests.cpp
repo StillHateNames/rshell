@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
+#include <climits>
 
 using namespace std;
 
@@ -62,345 +63,231 @@ int test::exec(int result)
     return 0;
 }
 
-BaseCommand* parse(string str)
+unsigned find(string str, string look)
 {
-    if(str != "") // not empty string
+    if(!str.empty() && !look.empty())
     {
-        if((str.find('(') != string::npos) && (str.find('(') == 0)) // nothing before parentheses
+        for(unsigned i = 0; i < str.length() - look.length() + 1; i++)
         {
-            int dCount = 0; // depth of parentheses
-            unsigned i;
-            for(i = 0; i < str.size(); i++)
+            if(str.at(i) == '(')
             {
-                if(str.at(i) == '(')
+                int count = 1;
+                bool end = 0;
+                for(i = i + 1; i < str.length(); i++)
                 {
-                    dCount++;
+                    if(str.at(i) == '(')
+                    {
+                        count++;
+                    }
+                    else if(str.at(i) == ')')
+                    {
+                        count--;
+                    }
+                    else if(count == 0)
+                    {
+                        end = 1;
+                        i++;
+                        break;
+                    }
                 }
-                if(str.at(i) == ')')
+                if(!end)
                 {
-                    dCount--;
-                }
-                if(dCount == 0)
-                {
-                    break;
+                    return UINT_MAX;
                 }
             }
-            if(dCount != 0) // incorrect amount of parentheses
+            if(str.at(i) == look.at(0))
             {
-                cout << "ERROR: invalid command.\n";
-                return 0;
-            }
-            string s1 = str.substr(str.find('(') + 1, i - 1); // what's in parentheses
-            string s2 = str.substr(i + 1); // what's after parentheses
-            if(s2 != "") // something after parentheses
-            {
-                if((s2.find("||") != string::npos) || (s2.find("&&") != string::npos) || (s2.find(';') != string::npos))
+                bool found = 1;
+                for(unsigned j = 1; j < look.length(); j++)
                 {
-                    unsigned Always = s2.find(';');
-                    unsigned Series = s2.find("&&");
-                    unsigned Parallel = s2.find("||");
-                    if((((Always < Series) && (Always < Parallel)) || ((Series == string::npos) && (Parallel == string::npos))) && (Always < s2.find('(')))
+                    if(str.at(i + j) != look.at(j))
                     {
-                        s2 = s2.substr(s2.find_first_not_of(' ', s2.find(';') + 1));
-                        return new always(parse(s1), parse(s2));
-                    }
-                    else if((((Always > Series) && (Series < Parallel)) || ((Always == string::npos) && (Parallel == string::npos))) && (Series < s2.find('(')))
-                    {
-                        s2 = s2.substr(s2.find_first_not_of(' ', s2.find("&&") + 2));
-                        cout << "s2 is now: " << s2 << endl;
-                        return new series(parse(s1), parse(s2));
-                    }
-                    else if((((Parallel < Series) && (Always > Parallel)) || ((Series == string::npos) && (Always == string::npos)))  && (Parallel < s2.find('(')))
-                    {
-                        s2 = s2.substr(s2.find_first_not_of(' ', s2.find("||") + 2));
-                        return new parallel(parse(s1), parse(s2));
-                    }
-                    else
-                    {
-                        cout << "ERROR: invalid command.\n";
-                        return 0;
+                        found = 0;
+                        break;
                     }
                 }
-                else
+                if(found)
                 {
-                        cout << "ERROR: invalid command.\n";
-                        return 0;
+                    return i;
                 }
-            }
-            else
-            {
-                return parse(s1);
             }
         }
-        else if(str.find('(') != string::npos)
+        return UINT_MAX;
+    }
+    return UINT_MAX;
+}
+
+int group::exec(int result)
+{
+    if(result > -1)
+    {
+        return base->exec(0);
+    }
+    else
+    {
+        delete base;
+        return result;
+    }
+}
+
+BaseCommand* parse(string str)
+{
+    if((!str.empty()) && (str != ";") && (str != "||") && (str != "&&"))
+    {
+        unsigned Always = find(str, ";");
+        unsigned Series = find(str, "&&");
+        unsigned Parallel = find(str, "||");
+        string s1, s2;
+        int branch = 0;
+        BaseCommand *left, *right;
+        if((find(str, "||") != UINT_MAX) || (find(str, "&&") != UINT_MAX) || (find(str, ";") != UINT_MAX))
         {
-            if((str.rfind("||", str.find('(')) != string::npos) || (str.rfind("&&", str.find('(')) != string::npos) || (str.rfind(';', str.find('(')) != string::npos))
+            unsigned space, end;
+            if(((Always < Series) && (Always < Parallel))) 
             {
-                unsigned Always = str.rfind(';', str.find('('));
-                unsigned Series = str.rfind("&&", str.find('('));
-                unsigned Parallel = str.rfind("||", str.find('('));
-                if(((Always < Series) && (Always < Parallel)) || ((Series == string::npos) && (Parallel == string::npos)))
-                {
-                    string s1 = str.substr(0, Always);
-                    string s2 = str.substr(str.find_first_not_of(' ', Always + 1));
-                    return new always(parse(s1), parse(s2));
-                }
-                else if(((Always > Series) && (Series < Parallel)) || ((Always == string::npos) && (Parallel == string::npos)))
-                {
-                    string s1 = str.substr(0, Series);
-                    string s2 = str.substr(str.find_first_not_of(' ', Series + 1));
-                    return new series(parse(s1), parse(s2));
-                }
-                else if(((Parallel < Series) && (Always > Parallel)) || ((Series == string::npos) && (Parallel == string::npos)))
-                {
-                    string s1 = str.substr(0, Parallel);
-                    string s2 = str.substr(str.find_first_not_of(' ', Parallel + 1));
-                    return new parallel(parse(s1), parse(s2));
-                }
-                return 0;
+                space = str.find_first_not_of(' ');
+                end = str.find_last_not_of(' ', Always - 1);
+                s1 = str.substr(space, end - space + 1);
+                space = str.find_first_not_of(' ', Always + 1);
+                s2 = str.substr(space);
+                branch = 1;
             }
-            else
+            if(((Always > Series) && (Series < Parallel)))
             {
-                cout << "ERROR: invalid command.\n";
-                return 0;
+                space = str.find_first_not_of(' ');
+                end = str.find_last_not_of(' ', Series - 1);
+                s1 = str.substr(space, end - space + 1);
+                space = str.find_first_not_of(' ', Series + 2);
+                s2 = str.substr(space);
+                branch = 2;
+            }
+            if(((Parallel < Series) && (Always > Parallel)))
+            {
+                space = str.find_first_not_of(' ');
+                end = str.find_last_not_of(' ', Parallel - 1);
+                s1 = str.substr(space, end - space + 1);
+                space = str.find_first_not_of(' ', Parallel + 2);
+                s2 = str.substr(space);
+                branch = 3;
             }
         }
         else
         {
-            if((str.find("[ ") != string::npos))
-            {
-                if(str.at(0) == '[')
-                {
-                    if(str.find(']') != string::npos)
-                    {
-                        string s1 = str.substr(1, str.find(']') - 2);
-                        test* Test;
-                        if(s1.find('-') != string::npos)
-                        {
-                            if(s1.at(s1.find('-') + 1) == 'd')
-                            {
-                                unsigned first = s1.find(' ', s1.find('-') + 1);
-                                unsigned last = s1.find(" ;|&", first + 1);
-                                Test = new test('d', s1.substr(first + 1, last - first - 1));
-                            }
-                            else if(s1.at(s1.find('-') + 1) == 'f')
-                            {
-                                unsigned first = s1.find(' ', s1.find('-') + 1);
-                                unsigned last = s1.find(" ;|&", first + 1);
-                                Test = new test('f', s1.substr(first + 1, last - first - 1));
-                            }
-                            else
-                            {
-                                unsigned first = s1.find(' ', s1.find('-') + 1);
-                                unsigned last = s1.find(" ;|&", first + 1);
-                                Test = new test('e', s1.substr(first + 1, last  - first - 1));
-                            }
-                        }
-                        else
-                        {
-                            unsigned first = s1.find_first_not_of(' ');
-                            Test = new test('e', s1.substr(first));
-                        }
-                        if((str.find("||") != string::npos) || (str.find("&&") != string::npos) || (str.find(';') != string::npos))
-                        {
-                            unsigned Always = str.find(';');
-                            unsigned Series = str.find("&&");
-                            unsigned Parallel = str.find("||");
-                            string s2;
-                            if((((Always < Series) && (Always < Parallel)) || ((Series == string::npos) && (Parallel == string::npos))))
-                            {
-                                s2 = s2.substr(s2.find(';') + 1);
-                                return new always(Test, parse(s2));
-                            }
-                            else if((((Always > Series) && (Series < Parallel)) || ((Always == string::npos) && (Parallel == string::npos))))
-                            {
-                                s2 = s2.substr(s2.find("&&") + 2);
-                                return new series(Test, parse(s2));
-                            }
-                            else if((((Parallel < Series) && (Always > Parallel)) || ((Series == string::npos) && (Always == string::npos))))
-                            {
-                                s2 = s2.substr(s2.find("||") + 2);
-                                return new parallel(Test, parse(s2));
-                            }
-                            else
-                            {
-                                cout << "ERROR: invalid command.\n";
-                                return 0;
-                            }
-                        }
-                        else
-                        {
-                            return Test;
-                        }
-                    }
-                    else
-                    {
-                        cout << "ERROR: invalid command.\n";
-                        return 0;
-                    }
-                }
-                else
-                {
-                    if((str.rfind("||", str.find('[')) != string::npos) || (str.rfind("&&", str.find('[')) != string::npos) || (str.rfind(';', str.find('[')) != string::npos))
-                    {
-                        unsigned Always = str.rfind(';', str.find('['));
-                        unsigned Series = str.rfind("&&", str.find('['));
-                        unsigned Parallel = str.rfind("||", str.find('['));
-                        if(((Always < Series) && (Always < Parallel)) || ((Series == string::npos) && (Parallel == string::npos)))
-                        {
-                            string s1 = str.substr(0, Always);
-                            string s2 = str.substr(str.find_first_not_of(' ', Always + 1));
-                            return new always(read(s1), parse(s2));
-                        }
-                        else if(((Always > Series) && (Series < Parallel)) || ((Always == string::npos) && (Parallel == string::npos)))
-                        {
-                            string s1 = str.substr(0, Series);
-                            string s2 = str.substr(str.find_first_not_of(' ', Series + 1));
-                            return new series(read(s1), parse(s2));
-                        }
-                        else if(((Parallel < Series) && (Always > Parallel)) || ((Series == string::npos) && (Parallel == string::npos)))
-                        {
-                            string s1 = str.substr(0, Parallel);
-                            string s2 = str.substr(str.find_first_not_of(' ', Parallel + 1));
-                            return new parallel(read(s1), parse(s2));
-                        }
-                        return 0;
-                    }
-                }
-            }
-            else if(str.find("test ") != string::npos)
-            {
-                unsigned testCheck = str.find("test ");
-                if(testCheck == 0)
-                {
-                    test* Test;
-                    if(str.find('-') != string::npos)
-                    {
-                        if(str.at(str.find('-') + 1) == 'd')
-                        {
-                            unsigned first = str.find(" ", str.find('-') + 1);
-                            unsigned last = str.find_first_not_of(" ;|&", first + 1);
-                            if(str.find(" ;|&", first + 1) != string::npos)
-                            {
-                                Test = new test('d', str.substr(first + 1, last - first - 1));
-                            }
-                            else
-                            {
-                                Test = new test('d', str.substr(first + 1));
-                            };
-                        }
-                        else if(str.at(str.find('-') + 1) == 'f')
-                        {
-                            unsigned first = str.find(" ", str.find('-') + 1);
-                            unsigned last = str.find(" ;|&", first + 1);
-                            if(str.find(" ;|&", first + 1) != string::npos)
-                            {
-                                Test = new test('f', str.substr(first + 1, last - first - 1));
-                            }
-                            else
-                            {
-                                Test = new test('f', str.substr(first + 1));
-                            }
-                        }
-                        else
-                        {
-                            unsigned first = str.find(" ", str.find('-') + 1);
-                            unsigned last = str.find(" ;|&", first + 1);
-                            cout << str.substr(first + 1) << endl;
-                            if(str.find(" ;|&", first + 1) != string::npos)
-                            {
-                                Test = new test('e', str.substr(first + 1, last - first - 1));
-                            }
-                            else
-                            {
-                                Test = new test('e', str.substr(first + 1));
-                            }
-                        }
-                    }
-                    else
-                    {
-                        unsigned first = str.find(' ');
-                        unsigned last = str.find(" ;|&", first + 1);
-                        Test = new test('e', str.substr(first + 1, last - first - 1));
-                    }
-                    if((str.find("||") != string::npos) || (str.find("&&") != string::npos) || (str.find(';') != string::npos))
-                    {
-                        unsigned Always = str.find(';');
-                        unsigned Series = str.find("&&");
-                        unsigned Parallel = str.find("||");
-                        string s2;
-                        if((((Always < Series) && (Always < Parallel)) || ((Series == string::npos) && (Parallel == string::npos))))
-                        {
-                            s2 = s2.substr(s2.find(';') + 1);
-                            return new always(Test, parse(s2));
-                        }
-                        else if((((Always > Series) && (Series < Parallel)) || ((Always == string::npos) && (Parallel == string::npos))))
-                        {
-                            s2 = s2.substr(s2.find("&&") + 2);
-                            return new series(Test, parse(s2));
-                        }
-                        else if((((Parallel < Series) && (Always > Parallel)) || ((Series == string::npos) && (Always == string::npos))))
-                        {
-                            s2 = s2.substr(s2.find("||") + 2);
-                            return new parallel(Test, parse(s2));
-                        }
-                        else
-                        {
-                            cout << "ERROR: invalid command.\n";
-                            return 0;
-                        }
-                    }
-                    else
-                    {
-                        return Test;
-                    }
-                }
-                else
-                {
-                    bool good = 0;
-                    if((str.at(testCheck - 1) == ';') || (str.at(testCheck - 1) == ' '))
-                    {
-                        good = 1;
-                    }
-                    else if(testCheck > 1)
-                    {
-                        if(((str.at(testCheck - 1) == '&') || (str.at(testCheck - 2) == '&')) || ((str.at(testCheck - 1) == '|') || (str.at(testCheck - 2) == '|')))
-                        {
-                            good = 1;
-                        }
-                    }
-                    if(good)
-                    {
-                        if((str.rfind("||", testCheck) != string::npos) || (str.rfind("&&", testCheck) != string::npos) || (str.rfind(';', testCheck) != string::npos))
-                        {
-                            unsigned Always = str.rfind(';', testCheck);
-                            unsigned Series = str.rfind("&&", testCheck);
-                            unsigned Parallel = str.rfind("||", testCheck);
-                            if(((Always < Series) && (Always < Parallel)) || ((Series == string::npos) && (Parallel == string::npos)))
-                            {
-                                string s1 = str.substr(0, Always);
-                                string s2 = str.substr(str.find_first_not_of(' ', Always + 1));
-                                return new always(read(s1), parse(s2));
-                            }
-                            else if(((Always > Series) && (Series < Parallel)) || ((Always == string::npos) && (Parallel == string::npos)))
-                            {
-                                string s1 = str.substr(0, Series);
-                                string s2 = str.substr(str.find_first_not_of(' ', Series + 1));
-                                return new series(read(s1), parse(s2));
-                            }
-                            else if(((Parallel < Series) && (Always > Parallel)) || ((Series == string::npos) && (Parallel == string::npos)))
-                            {
-                                string s1 = str.substr(0, Parallel);
-                                string s2 = str.substr(str.find_first_not_of(' ', Parallel + 1));
-                                return new parallel(read(s1), parse(s2));
-                            }
-                            return 0;
-                        }
-                    }
-                }
-            }
-            return read(str);
+            s1 = str;
         }
+        if(s1.at(0) == '(')
+        {
+            int count = 1;
+            unsigned i;
+            for(i = 1; i < s1.length(); i++)
+            {
+                if(s1.at(i) == '(')
+                {
+                    count++;
+                }
+                if(s1.at(i) == ')')
+                {
+                    count--;
+                }
+                if(!count)
+                {
+                    break;
+                }
+            }
+            s1 = s1.substr(1, i - 1);
+            left = new group(parse(s1));
+            if(count)
+            {
+                cout << "ERROR: invalid command.\n";
+                return 0;
+            }
+        }
+        else if((s1.at(0) == '[') || (s1.find("test") == 0))
+        {
+            if(s1.at(0) == '[')
+            {
+                if(s1.find(']') != string::npos)
+                {
+                    s1 = s1.substr(1, s1.find(']') - 1);
+                }
+                else
+                {
+                    cout << "ERROR: invalid command.\n";
+                    return 0;
+                }
+                if(s1.find('-') != string::npos)
+                {
+                    unsigned start;
+                    if(s1.at(s1.find('-') + 1) == 'd')
+                    {
+                        start = s1.find_first_not_of(' ', s1.find(' ', s1.find('-')));
+                        left = new test('d', s1.substr(start, s1.find_last_not_of(' ') - start + 1));
+                    }
+                    else if(s1.at(s1.find('-') + 1) == 'f')
+                    {
+                        start = s1.find_first_not_of(' ', s1.find(' ', s1.find('-')));
+                        left = new test('f', s1.substr(start, s1.find_last_not_of(' ') - start + 1));
+                    }
+                    else
+                    {
+                        start = s1.find_first_not_of(' ', s1.find(' ', s1.find('-')));
+                        left = new test('e', s1.substr(start, s1.find_last_not_of(' ') - start + 1));
+                    }
+                }
+                else
+                {
+                    left = new test('e', s1.substr(s1.find_first_not_of(' '), s1.find_last_not_of(' ') - s1.find_first_not_of(' ') + 1));
+                }
+            }
+            else
+            {
+                s1 = s1.substr(4);
+                if(s1.find('-') != string::npos)
+                {
+                    if(s1.at(s1.find('-') + 1) == 'd')
+                    {
+                        left = new test('d', s1.substr(s1.find(' ', s1.find('-')) + 1, s1.find_last_not_of(' ') - s1.find(' ', s1.find('-')) + 2));
+                    }
+                    else if(s1.at(s1.find('-') + 1) == 'f')
+                    {
+                        left = new test('f', s1.substr(s1.find(' ', s1.find('-')) + 1, s1.find_last_not_of(' ') - s1.find(' ', s1.find('-')) + 2));
+                    }
+                    else
+                    {
+                        left = new test('e', s1.substr(s1.find(' ', s1.find('-')) + 1, s1.find_last_not_of(' ') - s1.find(' ', s1.find('-')) + 2));
+                    }
+                }
+                else
+                {
+                    left = new test('e', s1.substr(s1.find_first_not_of(' '), s1.find_last_not_of(' ') - s1.find_first_not_of(' ') + 1));
+                }
+            }
+        }
+        else
+        {
+            left = read(s1);
+        }
+        if(branch)
+        {
+            right = parse(s2);
+            if(branch == 1)
+            {
+                return new always(left, right);
+            }
+            else if(branch == 2)
+            {
+                return new series(left, right);
+            }
+            else if(branch == 3)
+            {
+                return new parallel(left, right);
+            }
+        }
+        else
+        {
+            return left;
+        }
+        return 0;
     }
     else
     {
