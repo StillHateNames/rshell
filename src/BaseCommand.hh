@@ -19,7 +19,7 @@ class BaseCommand
     int virtual exec(int result) = 0; // runs commands and frees up used commands as you go
 };
 
-BaseCommand* read(string str);
+BaseCommand* readCom(string str);
 
 class Executable : public BaseCommand
 {

@@ -15,6 +15,7 @@ int Executable::exec(int result)
   if(child == -1)
   {
     perror("fork failed");
+    return -1;
   }
   if(child == 0)
   {
@@ -162,7 +163,7 @@ int always::exec(int result)
     }
 }
 
-BaseCommand* read(string str) // reads string passed in by user, returns skewed BaseCommand* tree
+BaseCommand* readCom(string str) // reads string passed in by user, returns skewed BaseCommand* tree
 {
   if((!str.empty()) && (str != ";") && (str != "||") && (str != "&&")) //non empty string returned.
   {
@@ -250,17 +251,17 @@ BaseCommand* read(string str) // reads string passed in by user, returns skewed 
         }
         if(((Always < Series) && (Always < Parallel)) || ((Series == string::npos) && (Parallel == string::npos)))
         {
-          exe = new always(new Executable(arg), read(s2));
+          exe = new always(new Executable(arg), readCom(s2));
           return exe;
         }
         else if(((Series < Always) && (Series < Parallel)) || ((Parallel == string::npos) && (Always == string::npos)))
         {
-          exe = new series(new Executable(arg), read(s2));
+          exe = new series(new Executable(arg), readCom(s2));
           return exe;
         }
         else if(((Parallel < Series) && (Parallel < Always)) || ((Series == string::npos) && (Always == string::npos)))
         {
-          exe = new parallel((new Executable(arg)), read(s2));
+          exe = new parallel((new Executable(arg)), readCom(s2));
           return exe;
         }
       }
@@ -281,6 +282,7 @@ BaseCommand* read(string str) // reads string passed in by user, returns skewed 
         arg.push_back(c2);
         c2 = strtok(NULL, " ");
       }
+      arg.push_back(NULL);
       exe = new Executable(arg);
       return exe;
     }

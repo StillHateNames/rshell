@@ -4,6 +4,10 @@
 #include <unistd.h>
 #include <errno.h>
 #include <climits>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <fstream>
+#include <cstdlib>
 
 using namespace std;
 
@@ -137,13 +141,14 @@ BaseCommand* parse(string str)
         unsigned Always = find(str, ";");
         unsigned Series = find(str, "&&");
         unsigned Parallel = find(str, "||");
+        unsigned Pipe = find(str, "|");
         string s1, s2;
         int branch = 0;
         BaseCommand *left, *right;
-        if((find(str, "||") != UINT_MAX) || (find(str, "&&") != UINT_MAX) || (find(str, ";") != UINT_MAX))
+        if((find(str, "||") != UINT_MAX) || (find(str, "&&") != UINT_MAX) || (find(str, ";") != UINT_MAX) || (find(str, "|") != UINT_MAX))
         {
             unsigned space, end;
-            if(((Always < Series) && (Always < Parallel))) 
+            if(((Always < Series) && (Always < Parallel) && (Always < Pipe))) 
             {
                 space = str.find_first_not_of(' ');
                 end = str.find_last_not_of(' ', Always - 1);
@@ -152,7 +157,7 @@ BaseCommand* parse(string str)
                 s2 = str.substr(space);
                 branch = 1;
             }
-            if(((Always > Series) && (Series < Parallel)))
+            if(((Always > Series) && (Series < Parallel) && (Series < Pipe)))
             {
                 space = str.find_first_not_of(' ');
                 end = str.find_last_not_of(' ', Series - 1);
@@ -161,7 +166,7 @@ BaseCommand* parse(string str)
                 s2 = str.substr(space);
                 branch = 2;
             }
-            if(((Parallel < Series) && (Always > Parallel)))
+            if(((Parallel < Series) && (Always > Parallel) && (Parallel < Pipe)))
             {
                 space = str.find_first_not_of(' ');
                 end = str.find_last_not_of(' ', Parallel - 1);
@@ -169,6 +174,15 @@ BaseCommand* parse(string str)
                 space = str.find_first_not_of(' ', Parallel + 2);
                 s2 = str.substr(space);
                 branch = 3;
+            }
+            if((Pipe < Always) && (Pipe < Series) && (Pipe < Parallel))
+            {
+                space = str.find_first_not_of(' ');
+                end = str.find_last_not_of(' ', Pipe - 1);
+                s1 = str.substr(space, end - space + 1);
+                space = str.find_first_not_of(' ', Pipe + 1);
+                s2 = str.substr(space);
+                branch = 4;
             }
         }
         else
@@ -263,9 +277,50 @@ BaseCommand* parse(string str)
                 }
             }
         }
+        else if((find(s1, "<") != UINT_MAX) || (find(s1, ">") != UINT_MAX) || (find(s1, ">>") != UINT_MAX))
+        {
+            unsigned Input = find(s1, "<");
+            unsigned Append = find(s1, ">>");
+            unsigned Output = find(s1, ">");
+            unsigned begin, end;
+            string temp;
+            if(Input != UINT_MAX)
+            {
+                begin = s1.find_first_not_of(' ');
+                end = s1.find_last_not_of(' ', Input - 1);
+                temp = s1.substr(begin, end - begin + 1);
+                left = readCom(temp);
+                begin = s1.find_first_not_of(' ', Input + 1);
+                end = s1.find_last_not_of(' ');
+                temp = s1.substr(begin, end - begin + 1);
+                left = new input(left, temp);
+            }
+            else if(Append != UINT_MAX)
+            {
+                begin = s1.find_first_not_of(' ');
+                end = s1.find_last_not_of(' ', Append - 1);
+                temp = s1.substr(begin, end - begin + 1);
+                left = readCom(temp);
+                begin = s1.find_first_not_of(' ', Append + 2);
+                end = s1.find_last_not_of(' ');
+                temp = s1.substr(begin, end - begin + 1);
+                left = new append(left, temp);
+            }
+            else
+            {
+                begin = s1.find_first_not_of(' ');
+                end = s1.find_last_not_of(' ', Output - 1);
+                temp = s1.substr(begin, end - begin + 1);
+                left = readCom(temp);
+                begin = s1.find_first_not_of(' ', Output + 1);
+                end = s1.find_last_not_of(' ');
+                temp = s1.substr(begin, end - begin + 1);
+                left = new output(left, temp);
+            }
+        } 
         else
         {
-            left = read(s1);
+            left = readCom(s1);
         }
         if(branch)
         {
@@ -282,6 +337,10 @@ BaseCommand* parse(string str)
             {
                 return new parallel(left, right);
             }
+            else if(branch == 4)
+            {
+                return new piping(left, right);
+            } 
         }
         else
         {
@@ -293,4 +352,335 @@ BaseCommand* parse(string str)
     {
         return 0;
     }
+}
+
+int output::exec(int result)
+{
+    int p[2];
+    if(pipe(p) == -1)
+    {
+        perror("pipe failed");
+        return -1;
+    }
+    pid_t child = fork();
+    if(child == -1)
+    {
+        perror("fork failed");
+        return -1;
+    }
+    if(!child)
+    {
+        close(1);
+        close(p[0]);
+        if(dup(p[1]) == -1)
+        {
+            perror("dup failed");
+            exit(-1);
+        }
+        int val = this->left->exec(0);
+        close(p[1]);
+        exit(val);
+    }
+    child = fork();
+    if(child == -1)
+    {
+        perror("fork failed");
+        return -1;
+    }
+    if(!child)
+    {
+        close(0);
+        close(p[1]);
+        dup(p[0]);
+        int file = open(str.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00700);
+        if(file == -1)
+        {
+            perror("open failed");
+            exit(-1);
+        }
+        char buf;
+        while(read(p[0], &buf, 1))
+        {
+            write(file, &buf, 1);
+        }
+        close(p[0]);
+        exit(0);
+    }
+    close(p[0]);
+    close(p[1]);
+    int status;
+    int finish = waitpid(0, &status, 0);
+    if(finish == -1)
+    {
+      perror("waitpid failed");
+      return -1;
+    }
+    if(WIFEXITED(status))
+    {
+        if(WEXITSTATUS(status) == -1)
+        {
+            return -1;
+        }
+    }
+    finish = waitpid(0, &status, 0);
+    if(finish == -1)
+    {
+      perror("waitpid failed");
+      return -1;
+    }
+    if(WIFEXITED(status))
+    {
+        if(WEXITSTATUS(status) == -1)
+        {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int piping::exec(int result)
+{
+    int p[2];
+    if(pipe(p) == -1)
+    {
+        perror("pipe failed");
+        return -1;
+    }
+    pid_t child = fork();
+    if(child == -1)
+    {
+        perror("fork failed");
+        return -1;
+    }
+    if(!child)
+    {
+        close(1);
+        close(p[0]);
+        if(dup(p[1]) == -1)
+        {
+            perror("dup failed");
+            exit(-1);
+        }
+        int val = this->left->exec(0);
+        close(p[1]);
+        exit(val);
+        
+    }
+    child = fork();
+    if(child == -1)
+    {
+        perror("fork failed");
+        return -1;
+    }
+    if(!child)
+    {
+        close(0);
+        close(p[1]);
+        if(dup(p[0]) == -1)
+        {
+            perror("dup failed");
+            exit(-1);
+        }
+        int val = this->right->exec(0);
+        close(p[0]);
+        exit(val);
+    }
+    close(p[0]);
+    close(p[1]);
+    int status;
+    int finish = waitpid(0, &status, 0);
+    if(finish == -1)
+    {
+      perror("waitpid failed");
+      return -1;
+    }
+    if(WIFEXITED(status))
+    {
+        if(WEXITSTATUS(status) == -1)
+        {
+            return -1;
+        }
+    }
+    finish = waitpid(0, &status, 0);
+    if(finish == -1)
+    {
+      perror("waitpid failed");
+      return -1;
+    }
+    if(WIFEXITED(status))
+    {
+        if(WEXITSTATUS(status) == -1)
+        {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int append::exec(int result)
+{
+    int p[2];
+    if(pipe(p) == -1)
+    {
+        perror("pipe failed");
+        return -1;
+    }
+    pid_t child = fork();
+    if(child == -1)
+    {
+        perror("fork failed");
+        return -1;
+    }
+    if(!child)
+    {
+        close(1);
+        close(p[0]);
+        if(dup(p[1]) == -1)
+        {
+            perror("dup failed");
+            exit(-1);
+        }
+        close(p[1]);
+        exit(this->left->exec(0));
+        
+    }
+    child = fork();
+    if(child == -1)
+    {
+        perror("fork failed");
+        return -1;
+    }
+    if(!child)
+    {
+        close(0);
+        close(p[1]);
+        dup(p[0]);
+        int file = open(str.c_str(), O_WRONLY | O_CREAT | O_APPEND, 00700);
+        if(file == -1)
+        {
+            perror("open failed");
+            exit(-1);
+        }
+        char buf;
+        while(read(p[0], &buf, 1))
+        {
+            write(file, &buf, 1);
+        }
+        close(p[0]);
+        exit(0);
+    }
+    close(p[0]);
+    close(p[1]);
+    int status;
+    int finish = waitpid(0, &status, 0);
+    if(finish == -1)
+    {
+      perror("waitpid failed");
+      return -1;
+    }
+    if(WIFEXITED(status))
+    {
+        if(WEXITSTATUS(status) == -1)
+        {
+            return -1;
+        }
+    }
+    finish = waitpid(0, &status, 0);
+    if(finish == -1)
+    {
+      perror("waitpid failed");
+      return -1;
+    }
+    if(WIFEXITED(status))
+    {
+        if(WEXITSTATUS(status) == -1)
+        {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int input::exec(int result)
+{
+    int p[2];
+    if(pipe(p) == -1)
+    {
+        perror("pipe failed");
+        return -1;
+    }
+    pid_t child = fork();
+    if(child == -1)
+    {
+        perror("fork failed");
+        return -1;
+    }
+    if(!child)
+    {
+        close(1);
+        close(p[0]);
+        dup(p[1]);
+        int file = open(str.c_str(), O_RDONLY);
+        if(file == -1)
+        {
+            perror("open failed");
+            exit(-1);
+        }
+        char buf;
+        while(read(file, &buf, 1))
+        {
+            write(p[1], &buf, 1);
+        }
+        close(p[1]);
+        exit(0);
+    }
+    child = fork();
+    if(child == -1)
+    {
+        perror("fork failed");
+        return -1;
+    }
+    if(!child)
+    {
+        close(0);
+        close(p[1]);
+        if(dup(p[0]) == -1)
+        {
+            perror("dup failed");
+            exit(-1);
+        }
+        int val = this->left->exec(0);
+        close(p[0]);
+        exit(val);
+    }
+    close(p[0]);
+    close(p[1]);
+    int status;
+    int finish = waitpid(0, &status, 0);
+    if(finish == -1)
+    {
+      perror("waitpid failed");
+      return -1;
+    }
+    if(WIFEXITED(status))
+    {
+        if(WEXITSTATUS(status) == -1)
+        {
+            return -1;
+        }
+    }
+    finish = waitpid(0, &status, 0);
+    if(finish == -1)
+    {
+      perror("waitpid failed");
+      return -1;
+    }
+    if(WIFEXITED(status))
+    {
+        if(WEXITSTATUS(status) == -1)
+        {
+            return -1;
+        }
+    }
+    return 0;
 }
